@@ -8,6 +8,7 @@ const app=express()
 app.use(express.json())
 app.use(cors())
 
+
 app.get('/', (request,response)=>{
     response.send('Running Successfully')
 })
@@ -39,22 +40,22 @@ function authenticationToken (request,response,next){
 app.post("/register", async (request, response) => {
   const {  name, password, email } = request.body;
   const hashedPassword = await bcrypt.hash(password,10);
+  const selectUserQuery = `SELECT * FROM user WHERE username = '${username}'`;
+  const dbUser = await db.get(selectUserQuery);
+   if (dbUser === undefined) {
   const query= `
       INSERT INTO 
         users ( name, password, email) 
       VALUES ('${name}', '${email}', '${hashedPassword}')`;
-      db.run(query,
-    function (error){
-            if (error) {
-                return response.status(400).json({error:'User Exists'})
-                
-            }
-            else{
-                response.json({message:'Registered Successfully'})
-            }
-        }
+      const dbResponse = await db.run(query);
+    const newUserId = dbResponse.lastID;
+    response.send(`Created new user with ${newUserId}`);
+  } else {
+    response.status = 400;
+    response.send("User already exists");
+  }
   
-)
+   
 });
 
 //Login 
@@ -62,27 +63,30 @@ app.post("/register", async (request, response) => {
 app.post('/login', async(request,response)=>{
     const {email,password} = request.body;
     const query=`SELECT * FROM users WHERE email='${email}'`
-
-    db.get(query,async(error,user)=>{
-        if(!user){
-            return response.status(400).send('Invalid Email')
-            
-        }
-        const valid=await bcrypt.compare(password,user.password);
-        if(!valid){
-            return response.status(400).send('Incorrect Password')
-        }
-        const token= jwt.sign({id:user.id},
-            SECERT
-        );
-        response.send({message:'Login Successful', token:token})
-    })
+     const dbUser = await db.get(query);
+     if(dbUser === undefined){
+        response.status(400);
+    response.send("Invalid Email");
+     } 
+      else {
+    const isPasswordMatched = await bcrypt.compare(password, dbUser.password);
+    if (isPasswordMatched === true) {
+      const payload = {
+        email:email,
+      };
+      const jwtToken = jwt.sign(payload, SECRET);
+      response.send({ jwtToken });
+    } else {
+      response.status(400);
+      response.send("Invalid Password");
+    }
+  }
 })
 // ADD 
 
 app.post('/transactions', authenticationToken,(request,response)=>{
     const {title,amount,type,date,category}= request.body
-    const query=`INSERT INTO transaction (userId,titlt,amount,category,date) VALUES ('${request.user.id}','${title}', ${amount}, '${category}','${date}')`;
+    const query=`INSERT INTO transaction (userId,title,amount,category,date) VALUES ('${request.user.id}','${title}', ${amount}, '${category}','${date}')`;
     db.run(query,function(error){
         if(error){
             return response.status(400).send('Failed to Add')
